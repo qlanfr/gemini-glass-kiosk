@@ -119,13 +119,48 @@ flutter run
 
 ### Cloud Run (via GitHub Actions)
 
-1. Set up GCP project and enable Cloud Run
-2. Create service account with Cloud Run Admin role
-3. Add secrets to GitHub repository:
-   - `GCP_PROJECT_ID`
-   - `GCP_SA_KEY`
-   - `GOOGLE_API_KEY`
-4. Push to `main` branch to trigger deployment
+#### Step 1: GCP Setup
+```bash
+# Enable required APIs
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com
+
+# Create Artifact Registry repository
+gcloud artifacts repositories create glasskiosk \
+  --repository-format=docker \
+  --location=asia-northeast3
+
+# Create service account
+gcloud iam service-accounts create github-actions \
+  --display-name="GitHub Actions"
+
+# Grant required roles
+PROJECT_ID=$(gcloud config get-value project)
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/run.admin"
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+
+# Download service account key
+gcloud iam service-accounts keys create key.json \
+  --iam-account=github-actions@$PROJECT_ID.iam.gserviceaccount.com
+```
+
+#### Step 2: GitHub Secrets
+Go to **GitHub Repository → Settings → Secrets and variables → Actions**
+
+| Secret Name | Value |
+|-------------|-------|
+| `GCP_PROJECT_ID` | Your GCP project ID |
+| `GCP_SA_KEY` | Contents of `key.json` (paste entire JSON) |
+| `GOOGLE_API_KEY` | Your Gemini API key from [AI Studio](https://aistudio.google.com/apikey) |
+
+#### Step 3: Deploy
+Push to `main` branch → GitHub Actions auto-deploys to Cloud Run
 
 ## Project Structure
 
