@@ -13,7 +13,6 @@ Features:
 """
 
 import asyncio
-import base64
 from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncGenerator, Callable, Optional, Any

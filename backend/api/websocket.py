@@ -14,7 +14,6 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.events import Event
 from google.genai import types
 
 from core.config import settings
@@ -224,17 +223,17 @@ async def websocket_live_endpoint(websocket: WebSocket):
                 "type": "error",
                 "message": f"세션 오류: {str(e)}",
             })
-        except:
+        except Exception:
             pass
     finally:
         # 정리
         try:
             await live_request_queue.close()
-        except:
+        except Exception:
             pass
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
         logger.info(f"Session closed: {session_id}")
 
@@ -263,7 +262,7 @@ async def websocket_simple_endpoint(websocket: WebSocket):
 
                 # 세션 생성 및 실행
                 session_id = f"simple_{uuid.uuid4().hex[:8]}"
-                session = await session_service.create_session(
+                await session_service.create_session(
                     app_name="glasskiosk_copilot",
                     user_id="simple_user",
                     session_id=session_id,
@@ -431,13 +430,13 @@ async def websocket_native_endpoint(websocket: WebSocket, prompt_id: Optional[st
                 "type": "error",
                 "message": str(e),
             })
-        except:
+        except Exception:
             pass
     finally:
         await client.stop()
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 
@@ -486,7 +485,7 @@ async def websocket_session_endpoint(websocket: WebSocket, prompt_id: Optional[s
                 "type": "state",
                 "data": state.value,
             })
-        except:
+        except Exception:
             pass
 
     session = create_live_session(
@@ -600,12 +599,12 @@ async def websocket_session_endpoint(websocket: WebSocket, prompt_id: Optional[s
                 "type": "error",
                 "message": str(e),
             })
-        except:
+        except Exception:
             pass
     finally:
         await session.disconnect()
         logger.info(f"Session metrics: {session.get_metrics()}")
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass

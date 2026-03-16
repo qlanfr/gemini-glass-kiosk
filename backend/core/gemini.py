@@ -153,7 +153,7 @@ class GeminiService:
                 audio_response=data.get("audio_response", ""),
                 status=data.get("status", "success"),
             )
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError):
             # 파싱 실패 시 기본 응답
             return KioskResponse(
                 detected_language="en-US",
