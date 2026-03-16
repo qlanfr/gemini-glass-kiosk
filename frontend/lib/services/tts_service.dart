@@ -64,6 +64,27 @@ class TtsService {
     }
   }
 
+  // 마크다운 제거
+  String _stripMarkdown(String text) {
+    return text
+        // 볼드/이탤릭 제거
+        .replaceAll(RegExp(r'\*\*(.+?)\*\*'), r'$1')
+        .replaceAll(RegExp(r'\*(.+?)\*'), r'$1')
+        .replaceAll(RegExp(r'__(.+?)__'), r'$1')
+        .replaceAll(RegExp(r'_(.+?)_'), r'$1')
+        // 코드 블록 제거
+        .replaceAll(RegExp(r'```[\s\S]*?```'), '')
+        .replaceAll(RegExp(r'`(.+?)`'), r'$1')
+        // 헤더 제거
+        .replaceAll(RegExp(r'^#{1,6}\s+', multiLine: true), '')
+        // 링크 텍스트만 남기기
+        .replaceAll(RegExp(r'\[(.+?)\]\(.+?\)'), r'$1')
+        // 불릿 포인트 정리
+        .replaceAll(RegExp(r'^[\-\*]\s+', multiLine: true), '')
+        // 이모지는 유지
+        .trim();
+  }
+
   // 음성 출력
   Future<void> speak(String text, [String? languageCode]) async {
     await _initialize();
@@ -72,7 +93,9 @@ class TtsService {
       await setLanguage(languageCode);
     }
 
-    await _flutterTts.speak(text);
+    // 마크다운 제거 후 음성 출력
+    final cleanText = _stripMarkdown(text);
+    await _flutterTts.speak(cleanText);
   }
 
   // 음성 중지
