@@ -16,7 +16,6 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from core.config import settings
 from core.agent import get_kiosk_agent
 
 logger = logging.getLogger(__name__)
