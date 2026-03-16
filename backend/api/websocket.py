@@ -128,7 +128,7 @@ async def websocket_live_endpoint(websocket: WebSocket):
                             await live_request_queue.send_content(
                                 types.Content(
                                     role="user",
-                                    parts=[types.Part.from_text(data["data"])]
+                                    parts=[types.Part(text=data["data"])]
                                 )
                             )
 
@@ -275,7 +275,7 @@ async def websocket_simple_endpoint(websocket: WebSocket):
                     user_id="simple_user",
                     new_message=types.Content(
                         role="user",
-                        parts=[types.Part.from_text(user_text)]
+                        parts=[types.Part(text=user_text)]
                     ),
                 ):
                     if event.content:

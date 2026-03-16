@@ -151,7 +151,7 @@ class GeminiLiveClient:
                     )
                 ),
                 system_instruction=types.Content(
-                    parts=[types.Part.from_text(self.system_instruction)]
+                    parts=[types.Part(text=self.system_instruction)]
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -160,7 +160,7 @@ class GeminiLiveClient:
             config = types.LiveConnectConfig(
                 response_modalities=["TEXT"],
                 system_instruction=types.Content(
-                    parts=[types.Part.from_text(self.system_instruction)]
+                    parts=[types.Part(text=self.system_instruction)]
                 ),
             )
 
@@ -320,7 +320,7 @@ class GeminiLiveClient:
                         turns=[
                             types.Content(
                                 role="user",
-                                parts=[types.Part.from_text(text)],
+                                parts=[types.Part(text=text)],
                             )
                         ],
                         turn_complete=end_of_turn,
