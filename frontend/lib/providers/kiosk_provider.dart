@@ -58,8 +58,7 @@ class KioskProvider extends ChangeNotifier {
   // API 서버 URL 설정
   static const String _defaultLocalUrl = 'http://localhost:8000';
   // GitHub Pages에서 자동으로 가져오는 설정 URL
-  // TODO: 실제 GitHub username/repo로 변경
-  static const String _configUrl = 'https://YOUR_USERNAME.github.io/google_pj/config/server.json';
+  static const String _configUrl = 'https://qlanfr.github.io/gemini-glass-kiosk/config/server.json';
 
   String _serverUrl = _defaultLocalUrl;
   String? _cloudRunUrl; // GitHub Pages에서 가져온 URL
