@@ -7,6 +7,7 @@ import '../models/kiosk_response.dart';
 import '../models/prompt_info.dart';
 import '../models/user_profile.dart';
 import '../models/food_experience.dart';
+import '../models/app_settings.dart';
 import '../services/api_service.dart';
 import '../services/tts_service.dart';
 import '../services/rag_service.dart';
@@ -32,6 +33,9 @@ class KioskProvider extends ChangeNotifier {
   UserProfile _userProfile = UserProfile();
   UseMode _currentMode = UseMode.general;
 
+  // 앱 설정
+  AppSettings _appSettings = const AppSettings();
+
   // Getters
   KioskState get state => _state;
   KioskResponse? get lastResponse => _lastResponse;
@@ -54,6 +58,16 @@ class KioskProvider extends ChangeNotifier {
   UserProfile get userProfile => _userProfile;
   UseMode get currentMode => _currentMode;
   bool get hasUserProfile => _userProfile.hasAnyPreference;
+
+  // 앱 설정 Getters
+  AppSettings get appSettings => _appSettings;
+  AppLanguage get language => _appSettings.language;
+  bool get showResponseText => _appSettings.showResponseText;
+  bool get enableTTS => _appSettings.enableTTS;
+  double get cameraZoom => _appSettings.cameraZoom;
+
+  // 다국어 문자열 헬퍼
+  String str(StringKey key) => AppStrings.get(_appSettings.language, key);
 
   // API 서버 URL 설정
   static const String _defaultLocalUrl = 'http://localhost:8000';
@@ -203,6 +217,59 @@ class KioskProvider extends ChangeNotifier {
   Future<void> _saveProfileToStorage() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_profile', jsonEncode(_userProfile.toJson()));
+  }
+
+  // ===== 앱 설정 =====
+
+  // 설정 업데이트
+  void updateSettings(AppSettings settings) {
+    _appSettings = settings;
+    _saveSettingsToStorage();
+    notifyListeners();
+  }
+
+  // 언어 변경
+  void setLanguage(AppLanguage language) {
+    _appSettings = _appSettings.copyWith(language: language);
+    _saveSettingsToStorage();
+    notifyListeners();
+  }
+
+  // 응답 텍스트 표시 토글
+  void toggleShowResponseText() {
+    _appSettings = _appSettings.copyWith(showResponseText: !_appSettings.showResponseText);
+    _saveSettingsToStorage();
+    notifyListeners();
+  }
+
+  // TTS 토글
+  void toggleEnableTTS() {
+    _appSettings = _appSettings.copyWith(enableTTS: !_appSettings.enableTTS);
+    _saveSettingsToStorage();
+    notifyListeners();
+  }
+
+  // 카메라 줌 설정
+  void setCameraZoom(double zoom) {
+    _appSettings = _appSettings.copyWith(cameraZoom: zoom.clamp(1.0, 5.0));
+    _saveSettingsToStorage();
+    notifyListeners();
+  }
+
+  // 설정 로컬 저장
+  Future<void> _saveSettingsToStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_settings', jsonEncode(_appSettings.toJson()));
+  }
+
+  // 설정 로컬에서 불러오기
+  Future<void> loadSettingsFromStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settingsJson = prefs.getString('app_settings');
+    if (settingsJson != null) {
+      _appSettings = AppSettings.fromJson(jsonDecode(settingsJson));
+      notifyListeners();
+    }
   }
 
   // 프로필 로컬에서 불러오기

@@ -101,6 +101,8 @@ class ApiService {
     required Function(String) onError,
     Function()? onConnected,
     Function()? onDisconnected,
+    Function()? onTurnComplete,
+    Function(String)? onTranscription,
     String? promptId,
   }) {
     final wsUrl = _baseUrl.replaceFirst('http', 'ws');
@@ -112,6 +114,9 @@ class ApiService {
 
     _wsChannel!.stream.listen(
       (message) {
+        // 바이너리 메시지 (오디오) 무시 - 텍스트만 처리
+        if (message is! String) return;
+
         final data = jsonDecode(message);
         final type = data['type'];
 
@@ -126,7 +131,15 @@ class ApiService {
             onError(data['message'] ?? 'Unknown error');
             break;
           case 'turn_complete':
-            // 턴 완료 처리
+            // 턴 완료 - AI가 다시 입력 받을 준비됨
+            onTurnComplete?.call();
+            break;
+          case 'transcription':
+            // 사용자 음성 인식 결과
+            final transcriptionData = data['data'];
+            if (transcriptionData != null && transcriptionData['type'] == 'input') {
+              onTranscription?.call(transcriptionData['text'] ?? '');
+            }
             break;
         }
       },

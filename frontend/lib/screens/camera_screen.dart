@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 
 import '../providers/kiosk_provider.dart';
 import '../models/kiosk_response.dart';
+import '../models/app_settings.dart';
 import '../services/api_service.dart';
 import '../widgets/ar_overlay.dart';
 import '../widgets/experience_logger_dialog.dart';
@@ -41,6 +42,18 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isRecording = false;
   StreamSubscription<Uint8List>? _audioStreamSubscription;
   double _audioLevel = 0.0; // 0.0 ~ 1.0
+
+  // 카메라 줌
+  double _currentZoom = 1.0;
+  double _minZoom = 1.0;
+  double _maxZoom = 5.0;
+
+  // 터치 선택
+  Offset? _touchPoint;
+  bool _showTouchIndicator = false;
+
+  // 연속 대화 상태
+  bool _isAiReady = true; // AI가 입력을 받을 준비 상태
 
   @override
   void initState() {
@@ -97,6 +110,12 @@ class _CameraScreenState extends State<CameraScreen> {
 
     try {
       await _cameraController!.initialize();
+
+      // 줌 범위 설정
+      _minZoom = await _cameraController!.getMinZoomLevel();
+      _maxZoom = await _cameraController!.getMaxZoomLevel();
+      _currentZoom = _minZoom;
+
       setState(() {
         _isInitialized = true;
       });
@@ -105,6 +124,49 @@ class _CameraScreenState extends State<CameraScreen> {
         _errorMessage = '카메라 초기화 실패: $e';
       });
     }
+  }
+
+  // 줌 변경
+  Future<void> _setZoom(double zoom) async {
+    if (_cameraController == null) return;
+    final clampedZoom = zoom.clamp(_minZoom, _maxZoom);
+    await _cameraController!.setZoomLevel(clampedZoom);
+    setState(() {
+      _currentZoom = clampedZoom;
+    });
+  }
+
+  // 터치로 물체 선택
+  void _onTapToSelect(TapDownDetails details, Size previewSize) {
+    if (!_isLiveConnected) return;
+
+    final provider = context.read<KioskProvider>();
+    final x = details.localPosition.dx;
+    final y = details.localPosition.dy;
+
+    // 화면 비율로 좌표 계산
+    final normalizedX = (x / previewSize.width * 100).round();
+    final normalizedY = (y / previewSize.height * 100).round();
+
+    setState(() {
+      _touchPoint = details.localPosition;
+      _showTouchIndicator = true;
+    });
+
+    // 터치 위치 정보와 함께 질문 전송
+    final query = provider.language == AppLanguage.korean
+        ? '화면에서 x:$normalizedX%, y:$normalizedY% 위치에 있는 것이 뭐야?'
+        : 'What is at position x:$normalizedX%, y:$normalizedY% on screen?';
+    _apiService.sendTextMessage(query);
+
+    // 2초 후 터치 인디케이터 숨김
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _showTouchIndicator = false;
+        });
+      }
+    });
   }
 
   // ===== 실시간 모드 =====
@@ -132,22 +194,25 @@ class _CameraScreenState extends State<CameraScreen> {
       onResponse: (response) {
         setState(() {
           _liveResponse = response;
+          _isAiReady = false; // AI가 응답 중
         });
-        // TTS로 응답 읽기
-        if (response.audioResponse.isNotEmpty) {
+        // TTS로 응답 읽기 (설정에 따라)
+        if (response.audioResponse.isNotEmpty && provider.enableTTS) {
           provider.speakResponse(response.audioResponse, response.detectedLanguage);
         }
       },
       onError: (error) {
         setState(() {
           _liveError = error;
+          _isAiReady = true;
         });
       },
       onConnected: () {
         setState(() {
           _isLiveConnected = true;
+          _isAiReady = true;
         });
-        _showSnackBar('실시간 연결됨', Colors.green);
+        _showSnackBar(provider.str(StringKey.connected), Colors.green);
         // 프레임 전송 시작
         _startFrameCapture();
         // 음성 녹음 시작
@@ -157,9 +222,22 @@ class _CameraScreenState extends State<CameraScreen> {
         setState(() {
           _isLiveConnected = false;
           _isLiveMode = false;
+          _isAiReady = true;
         });
-        _showSnackBar('연결 종료됨', Colors.orange);
+        _showSnackBar(provider.str(StringKey.disconnected), Colors.orange);
         _stopAudioRecording();
+      },
+      onTurnComplete: () {
+        // AI가 응답 완료 - 다시 입력 받을 준비됨
+        setState(() {
+          _isAiReady = true;
+        });
+      },
+      onTranscription: (text) {
+        // 사용자 음성 인식 결과 표시 (선택적)
+        if (text.isNotEmpty) {
+          _showSnackBar('🎤 $text', Colors.blue.shade700);
+        }
       },
       promptId: provider.selectedPromptId,
     );
@@ -411,14 +489,49 @@ class _CameraScreenState extends State<CameraScreen> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 카메라 프리뷰
-            CameraPreview(_cameraController!),
+            // 카메라 프리뷰 (터치로 물체 선택 가능)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return GestureDetector(
+                  onTapDown: (details) => _onTapToSelect(
+                    details,
+                    Size(constraints.maxWidth, constraints.maxHeight),
+                  ),
+                  onScaleUpdate: (details) {
+                    // 핀치 줌
+                    if (details.scale != 1.0) {
+                      final newZoom = _currentZoom * details.scale;
+                      _setZoom(newZoom);
+                    }
+                  },
+                  child: CameraPreview(_cameraController!),
+                );
+              },
+            ),
+
+            // 터치 인디케이터
+            if (_showTouchIndicator && _touchPoint != null)
+              Positioned(
+                left: _touchPoint!.dx - 30,
+                top: _touchPoint!.dy - 30,
+                child: Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.yellow, width: 3),
+                    color: Colors.yellow.withValues(alpha: 0.2),
+                  ),
+                  child: const Icon(Icons.touch_app, color: Colors.yellow),
+                ),
+              ),
 
             // 실시간 모드 표시
             if (_isLiveMode)
               Positioned(
                 top: 16,
                 left: 16,
+                right: 16,
                 child: Row(
                   children: [
                     // LIVE 배지
@@ -438,11 +551,41 @@ class _CameraScreenState extends State<CameraScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _isLiveConnected ? 'LIVE' : '연결 중...',
+                            _isLiveConnected ? 'LIVE' : provider.str(StringKey.connecting),
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // AI 준비 상태 표시
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _isAiReady ? Colors.green : Colors.purple,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isAiReady ? Icons.hearing : Icons.record_voice_over,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _isAiReady
+                                ? (provider.language == AppLanguage.korean ? '듣는 중' : 'Listening')
+                                : (provider.language == AppLanguage.korean ? '말하는 중' : 'Speaking'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
                             ),
                           ),
                         ],
@@ -491,6 +634,52 @@ class _CameraScreenState extends State<CameraScreen> {
                   ],
                 ),
               ),
+
+            // 줌 슬라이더
+            Positioned(
+              right: 16,
+              top: 80,
+              bottom: 200,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.add, color: Colors.white, size: 20),
+                  Expanded(
+                    child: RotatedBox(
+                      quarterTurns: 3,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                          activeTrackColor: Colors.white,
+                          inactiveTrackColor: Colors.white38,
+                          thumbColor: Colors.white,
+                        ),
+                        child: Slider(
+                          value: _currentZoom,
+                          min: _minZoom,
+                          max: _maxZoom,
+                          onChanged: (value) => _setZoom(value),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.remove, color: Colors.white, size: 20),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_currentZoom.toStringAsFixed(1)}x',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
             // AR 오버레이 (일반 모드)
             if (!_isLiveMode && provider.highlightCoordinates != null)
@@ -555,13 +744,13 @@ class _CameraScreenState extends State<CameraScreen> {
                 child: _buildResponseCard(provider),
               ),
 
-            // 응답 메시지 표시 (실시간 모드)
-            if (_isLiveMode && _liveResponse != null)
+            // 응답 메시지 표시 (실시간 모드) - 설정에 따라
+            if (_isLiveMode && _liveResponse != null && provider.showResponseText)
               Positioned(
                 bottom: 100,
                 left: 16,
                 right: 16,
-                child: _buildLiveResponseCard(),
+                child: _buildLiveResponseCard(provider),
               ),
           ],
         );
@@ -630,7 +819,7 @@ class _CameraScreenState extends State<CameraScreen> {
     );
   }
 
-  Widget _buildLiveResponseCard() {
+  Widget _buildLiveResponseCard(KioskProvider provider) {
     return Card(
       color: Colors.white.withValues(alpha: 0.95),
       elevation: 8,
@@ -779,63 +968,138 @@ class _CameraScreenState extends State<CameraScreen> {
   void _showSettingsDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('설정'),
-        content: Consumer<KioskProvider>(
-          builder: (context, provider, child) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile(
-                  title: const Text('실시간 모드'),
-                  subtitle: Text(_isLiveMode ? '켜짐' : '꺼짐'),
-                  value: _isLiveMode,
-                  onChanged: (_) {
-                    Navigator.pop(context);
-                    _toggleLiveMode();
-                  },
-                ),
-                ListTile(
-                  leading: Icon(
-                    _isRecording ? Icons.mic : Icons.mic_off,
-                    color: _isRecording ? Colors.blue : Colors.grey,
-                  ),
-                  title: const Text('음성 입력'),
-                  subtitle: Text(_isRecording ? '녹음 중' : '대기'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.language),
-                  title: const Text('감지된 언어'),
-                  subtitle: Text(
-                    _isLiveMode
-                        ? (_liveResponse?.detectedLanguage ?? '없음')
-                        : (provider.lastResponse?.detectedLanguage ?? '없음'),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.wifi),
-                  title: const Text('서버 주소'),
-                  subtitle: Text(provider.serverUrl),
-                ),
-                if (_isLiveMode)
-                  ListTile(
-                    leading: Icon(
-                      _isLiveConnected ? Icons.check_circle : Icons.error,
-                      color: _isLiveConnected ? Colors.green : Colors.red,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(context.read<KioskProvider>().str(StringKey.settings)),
+          content: Consumer<KioskProvider>(
+            builder: (context, provider, child) {
+              final isKorean = provider.language == AppLanguage.korean;
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 언어 설정
+                    ListTile(
+                      leading: const Icon(Icons.language),
+                      title: Text(provider.str(StringKey.language)),
+                      trailing: DropdownButton<AppLanguage>(
+                        value: provider.language,
+                        underline: const SizedBox(),
+                        items: AppLanguage.values.map((lang) {
+                          return DropdownMenuItem(
+                            value: lang,
+                            child: Text(lang.displayName),
+                          );
+                        }).toList(),
+                        onChanged: (lang) {
+                          if (lang != null) {
+                            provider.setLanguage(lang);
+                            setDialogState(() {});
+                          }
+                        },
+                      ),
                     ),
-                    title: const Text('WebSocket 상태'),
-                    subtitle: Text(_isLiveConnected ? '연결됨' : '연결 안됨'),
-                  ),
-              ],
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('닫기'),
+                    const Divider(),
+
+                    // 응답 텍스트 표시
+                    SwitchListTile(
+                      title: Text(provider.str(StringKey.showResponseText)),
+                      subtitle: Text(isKorean
+                          ? '화면에 AI 응답 텍스트 표시'
+                          : 'Show AI response text on screen'),
+                      value: provider.showResponseText,
+                      onChanged: (_) {
+                        provider.toggleShowResponseText();
+                        setDialogState(() {});
+                      },
+                    ),
+
+                    // TTS 설정
+                    SwitchListTile(
+                      title: Text(provider.str(StringKey.enableTTS)),
+                      subtitle: Text(isKorean
+                          ? 'AI 응답을 음성으로 읽기'
+                          : 'Read AI response aloud'),
+                      value: provider.enableTTS,
+                      onChanged: (_) {
+                        provider.toggleEnableTTS();
+                        setDialogState(() {});
+                      },
+                    ),
+                    const Divider(),
+
+                    // 실시간 모드
+                    SwitchListTile(
+                      title: Text(provider.str(StringKey.liveMode)),
+                      subtitle: Text(_isLiveMode
+                          ? (isKorean ? '켜짐' : 'On')
+                          : (isKorean ? '꺼짐' : 'Off')),
+                      value: _isLiveMode,
+                      onChanged: (_) {
+                        Navigator.pop(context);
+                        _toggleLiveMode();
+                      },
+                    ),
+
+                    // 마이크 상태
+                    ListTile(
+                      leading: Icon(
+                        _isRecording ? Icons.mic : Icons.mic_off,
+                        color: _isRecording ? Colors.blue : Colors.grey,
+                      ),
+                      title: Text(isKorean ? '음성 입력' : 'Voice Input'),
+                      subtitle: Text(_isRecording
+                          ? (isKorean ? '녹음 중' : 'Recording')
+                          : (isKorean ? '대기' : 'Standby')),
+                    ),
+
+                    // 카메라 줌
+                    ListTile(
+                      leading: const Icon(Icons.zoom_in),
+                      title: Text(provider.str(StringKey.cameraZoom)),
+                      subtitle: Slider(
+                        value: _currentZoom,
+                        min: _minZoom,
+                        max: _maxZoom,
+                        divisions: 20,
+                        label: '${_currentZoom.toStringAsFixed(1)}x',
+                        onChanged: (value) {
+                          _setZoom(value);
+                          setDialogState(() {});
+                        },
+                      ),
+                    ),
+                    const Divider(),
+
+                    // 서버 상태
+                    ListTile(
+                      leading: const Icon(Icons.wifi),
+                      title: Text(isKorean ? '서버 주소' : 'Server URL'),
+                      subtitle: Text(provider.serverUrl),
+                    ),
+                    if (_isLiveMode)
+                      ListTile(
+                        leading: Icon(
+                          _isLiveConnected ? Icons.check_circle : Icons.error,
+                          color: _isLiveConnected ? Colors.green : Colors.red,
+                        ),
+                        title: Text(isKorean ? 'WebSocket 상태' : 'WebSocket Status'),
+                        subtitle: Text(_isLiveConnected
+                            ? (isKorean ? '연결됨' : 'Connected')
+                            : (isKorean ? '연결 안됨' : 'Disconnected')),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(context.read<KioskProvider>().str(StringKey.close)),
+            ),
+          ],
+        ),
       ),
     );
   }
