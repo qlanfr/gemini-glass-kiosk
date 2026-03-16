@@ -55,6 +55,9 @@ class _CameraScreenState extends State<CameraScreen> {
   // 연속 대화 상태
   bool _isAiReady = true; // AI가 입력을 받을 준비 상태
 
+  // TTS 응답 축적 (turn_complete까지 모아서 한 번에 읽기)
+  final StringBuffer _accumulatedResponse = StringBuffer();
+
   @override
   void initState() {
     super.initState();
@@ -196,9 +199,9 @@ class _CameraScreenState extends State<CameraScreen> {
           _liveResponse = response;
           _isAiReady = false; // AI가 응답 중
         });
-        // TTS로 응답 읽기 (설정에 따라)
-        if (response.audioResponse.isNotEmpty && provider.enableTTS) {
-          provider.speakResponse(response.audioResponse, response.detectedLanguage);
+        // 응답 텍스트 축적 (turn_complete까지 모아서 한 번에 TTS)
+        if (response.audioResponse.isNotEmpty) {
+          _accumulatedResponse.write(response.audioResponse);
         }
       },
       onError: (error) {
@@ -206,12 +209,14 @@ class _CameraScreenState extends State<CameraScreen> {
           _liveError = error;
           _isAiReady = true;
         });
+        _accumulatedResponse.clear();
       },
       onConnected: () {
         setState(() {
           _isLiveConnected = true;
           _isAiReady = true;
         });
+        _accumulatedResponse.clear();
         _showSnackBar(provider.str(StringKey.connected), Colors.green);
         // 프레임 전송 시작
         _startFrameCapture();
@@ -224,11 +229,18 @@ class _CameraScreenState extends State<CameraScreen> {
           _isLiveMode = false;
           _isAiReady = true;
         });
+        _accumulatedResponse.clear();
         _showSnackBar(provider.str(StringKey.disconnected), Colors.orange);
         _stopAudioRecording();
       },
       onTurnComplete: () {
-        // AI가 응답 완료 - 다시 입력 받을 준비됨
+        // AI가 응답 완료 - 축적된 텍스트를 한 번에 TTS로 읽기
+        final fullResponse = _accumulatedResponse.toString();
+        if (fullResponse.isNotEmpty && provider.enableTTS) {
+          final lang = _liveResponse?.detectedLanguage ?? 'ko-KR';
+          provider.speakResponse(fullResponse, lang);
+        }
+        _accumulatedResponse.clear();
         setState(() {
           _isAiReady = true;
         });
