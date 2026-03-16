@@ -121,7 +121,7 @@ class GeminiService:
                     role="user",
                     parts=[
                         types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                        types.Part.from_text(text=user_message),
+                        types.Part.from_text(user_message),
                     ],
                 )
             ],
