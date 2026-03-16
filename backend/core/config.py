@@ -19,8 +19,13 @@ class Settings(BaseSettings):
     # Google AI API
     google_api_key: str
 
-    # Gemini Model Settings
-    gemini_model: str = "gemini-2.0-flash"
+    # Gemini Model Settings (용도별 분리)
+    gemini_model_vision: str = "gemini-2.5-flash-lite"  # 이미지 분석용
+    gemini_model_audio: str = "gemini-2.5-flash-native-audio-preview-12-2025"  # 음성 입력 처리
+    gemini_model_tts: str = "gemini-2.5-flash-preview-tts"  # 음성 응답 생성
+
+    # 하위 호환성
+    gemini_model: str = "gemini-2.5-flash-lite"
 
     # Server Configuration
     host: str = "0.0.0.0"

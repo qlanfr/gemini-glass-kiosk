@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/kiosk_response.dart';
+import '../models/prompt_info.dart';
 
 class ApiService {
   String _baseUrl = 'http://localhost:8000';
@@ -15,11 +16,24 @@ class ApiService {
     _baseUrl = url;
   }
 
+  // REST API: 사용 가능한 프롬프트 목록 조회
+  Future<PromptsListResponse> getPrompts() async {
+    final uri = Uri.parse('$_baseUrl/api/prompts');
+    final response = await http.get(uri);
+
+    if (response.statusCode == 200) {
+      return PromptsListResponse.fromJson(jsonDecode(response.body));
+    } else {
+      throw ApiException('Failed to load prompts', 'Could not fetch prompts');
+    }
+  }
+
   // REST API: 이미지 분석 요청
   Future<KioskResponse> processKioskImage(
     List<int> imageBytes, {
     String? userQuery,
     String? languageHint,
+    String? promptId,
   }) async {
     final uri = Uri.parse('$_baseUrl/api/process-kiosk');
 
@@ -33,6 +47,7 @@ class ApiService {
         'image_base64': base64Image,
         'user_query': userQuery,
         'language_hint': languageHint,
+        'prompt_id': promptId,
       }),
     );
 
@@ -86,9 +101,14 @@ class ApiService {
     required Function(String) onError,
     Function()? onConnected,
     Function()? onDisconnected,
+    String? promptId,
   }) {
     final wsUrl = _baseUrl.replaceFirst('http', 'ws');
-    _wsChannel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws/live'));
+    var wsPath = '$wsUrl/ws/session';
+    if (promptId != null) {
+      wsPath += '?prompt_id=$promptId';
+    }
+    _wsChannel = WebSocketChannel.connect(Uri.parse(wsPath));
 
     _wsChannel!.stream.listen(
       (message) {
@@ -157,6 +177,22 @@ class ApiService {
     } catch (e) {
       return false;
     }
+  }
+
+  // 외부 설정 파일 가져오기 (GitHub Pages 등)
+  Future<Map<String, dynamic>?> fetchConfig(String configUrl) async {
+    try {
+      final response = await http.get(
+        Uri.parse(configUrl),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      // 설정 가져오기 실패 시 null 반환
+    }
+    return null;
   }
 }
 

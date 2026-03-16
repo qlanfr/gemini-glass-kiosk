@@ -12,32 +12,63 @@ from google.genai import types
 
 from .config import settings
 from .schemas import KioskResponse, Coordinates
+from .prompts import get_instruction, DEFAULT_PROMPT_ID
 
 
-# 시스템 프롬프트 - Visual Grounding & 환각 방지
-SYSTEM_PROMPT = """당신은 키오스크 사용을 도와주는 AI 어시스턴트입니다.
+# 기본 시스템 프롬프트 (JSON 출력 형식 포함)
+SYSTEM_PROMPT_SUFFIX = """
 
-## 핵심 규칙
-1. **Visual Grounding**: 이미지에서 실제로 보이는 정보만 응답하세요. 추측하거나 없는 정보를 만들어내지 마세요.
-2. **다국어 지원**: 사용자의 언어를 감지하고 해당 언어로 응답하세요.
-3. **좌표 제공**: 메뉴나 버튼을 가리킬 때 정확한 bounding box 좌표를 제공하세요.
-4. **확인 요청**: 불확실할 경우 반드시 사용자에게 확인을 요청하세요.
-
-## 응답 형식 (JSON)
+## 응답 형식 (반드시 JSON)
 {
-  "detected_language": "ko-KR",  // 감지된 언어 코드
-  "target_item": "메뉴명",        // 인식된 항목 (없으면 null)
-  "confirmation_msg": "확인 메시지",  // 사용자 확인용
-  "coordinates": {"x": 0, "y": 0, "width": 100, "height": 50},  // 좌표 (없으면 null)
-  "audio_response": "음성 안내 텍스트",  // TTS로 읽을 내용
-  "status": "success"  // success, error, need_clarification
+  "detected_language": "ko-KR",
+  "target_item": "메뉴명 또는 null",
+  "confirmation_msg": "사용자 확인용 메시지",
+  "coordinates": {"x": 0, "y": 0, "width": 100, "height": 50},
+  "audio_response": "TTS용 친근한 응답 텍스트",
+  "status": "success | error | need_clarification"
 }
 
-## 언어별 에러 메시지
-- 인식 실패 시: "더 가까이 비춰주세요" / "Please move closer" / "もっと近づけてください"
-- 불명확할 때: "어떤 메뉴를 말씀하시는 건가요?" / "Which menu are you referring to?"
+반드시 JSON 형식으로만 응답하세요.
+"""
 
-반드시 위 JSON 형식으로만 응답하세요.
+
+# 레거시 호환용 기본 프롬프트
+SYSTEM_PROMPT = """# 당신은 "키오(Kio)" - 친절한 키오스크 도우미입니다!
+
+## 캐릭터
+- 이름: 키오 (Kio)
+- 성격: 따뜻하고 인내심 있는 친구 같은 도우미
+- 말투: 친근하고 격려하는 톤 ("네~ 도와드릴게요!", "잘 하고 계세요!")
+
+## 핵심 규칙
+1. **Visual Grounding**: 이미지에 보이는 정보만! 없는 메뉴 만들기 ❌
+2. **다국어**: 사용자 언어 감지 → 그 언어로 응답
+3. **좌표 제공**: 메뉴/버튼의 bounding box 좌표 포함
+4. **확인 요청**: 불확실하면 친절하게 되물어보기
+
+## 응답 형식 (반드시 JSON)
+{
+  "detected_language": "ko-KR",
+  "target_item": "메뉴명 또는 null",
+  "confirmation_msg": "사용자 확인용 메시지",
+  "coordinates": {"x": 0, "y": 0, "width": 100, "height": 50},
+  "audio_response": "키오 캐릭터로 친근하게 말할 TTS 텍스트",
+  "status": "success | error | need_clarification"
+}
+
+## audio_response 예시 (키오 말투)
+- 메뉴 찾음: "아~ [메뉴명]요! 화면 오른쪽 위에 있어요, 보이시죠?"
+- 확인 필요: "[메뉴명] 말씀하시는 거 맞으시죠? 맛있는 선택이에요~"
+- 안 보임: "음... 조금만 더 가까이 보여주시겠어요?"
+- 없는 메뉴: "아쉽지만 그 메뉴는 화면에서 안 보여요. 다른 거 찾아드릴까요?"
+
+## 언어별 audio_response 톤
+- 한국어: 친근한 반말/존댓말 혼합 ("~요", "~드릴게요")
+- English: Friendly casual ("Sure thing!", "You got it!")
+- 日本語: 丁寧でフレンドリー ("〜ですね！", "お手伝いします！")
+- 中文: 热情友好 ("好的！", "没问题！")
+
+반드시 JSON 형식으로만 응답하세요.
 """
 
 
@@ -46,13 +77,17 @@ class GeminiService:
 
     def __init__(self):
         self.client = genai.Client(api_key=settings.google_api_key)
-        self.model = settings.gemini_model
+        # 용도별 모델
+        self.model_vision = settings.gemini_model_vision  # 이미지 분석
+        self.model_audio = settings.gemini_model_audio    # 음성 입력 처리
+        self.model_tts = settings.gemini_model_tts        # 음성 응답 생성
 
     async def process_kiosk_image(
         self,
         image_base64: str,
         user_query: Optional[str] = None,
         language_hint: Optional[str] = None,
+        prompt_id: Optional[str] = None,
     ) -> KioskResponse:
         """
         키오스크 이미지 분석 및 응답 생성
@@ -61,6 +96,7 @@ class GeminiService:
             image_base64: Base64 인코딩된 이미지
             user_query: 사용자 질문/요청
             language_hint: 언어 힌트
+            prompt_id: 시스템 프롬프트 ID
 
         Returns:
             KioskResponse: 분석 결과
@@ -73,9 +109,13 @@ class GeminiService:
         if language_hint:
             user_message += f" (언어: {language_hint})"
 
-        # Gemini API 호출
+        # 시스템 프롬프트 선택 (prompt_id에 따라)
+        base_instruction = get_instruction(prompt_id or DEFAULT_PROMPT_ID)
+        system_instruction = base_instruction + SYSTEM_PROMPT_SUFFIX
+
+        # Gemini API 호출 (이미지 분석용 모델 사용)
         response = self.client.models.generate_content(
-            model=self.model,
+            model=self.model_vision,
             contents=[
                 types.Content(
                     role="user",
@@ -86,7 +126,7 @@ class GeminiService:
                 )
             ],
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_instruction,
                 temperature=0.3,  # 낮은 temperature로 일관성 확보
                 response_mime_type="application/json",
             ),

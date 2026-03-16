@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../providers/kiosk_provider.dart';
 import '../widgets/ar_overlay.dart';
+import '../widgets/experience_logger_dialog.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -278,6 +279,16 @@ class _CameraScreenState extends State<CameraScreen> {
                   },
                 ),
                 const Spacer(),
+                // 경험 기록 버튼
+                if (response.targetItem != null)
+                  TextButton.icon(
+                    onPressed: () => _showExperienceLogger(
+                      provider,
+                      response.targetItem!,
+                    ),
+                    icon: const Icon(Icons.rate_review, size: 18),
+                    label: const Text('평가'),
+                  ),
                 // 닫기 버튼
                 TextButton(
                   onPressed: () => provider.reset(),
@@ -289,6 +300,38 @@ class _CameraScreenState extends State<CameraScreen> {
         ),
       ),
     );
+  }
+
+  /// 음식 경험 기록 다이얼로그 표시
+  Future<void> _showExperienceLogger(
+    KioskProvider provider,
+    String foodName,
+  ) async {
+    final result = await ExperienceLoggerDialog.show(
+      context,
+      foodName: foodName,
+    );
+
+    if (result != null) {
+      await provider.addFoodExperience(
+        foodName: result.foodName,
+        type: result.type,
+        rating: result.rating,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${result.foodName}" 경험이 저장되었습니다'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildBottomBar() {

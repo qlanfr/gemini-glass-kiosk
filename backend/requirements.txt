@@ -4,8 +4,9 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 
-# Google AI SDK
-google-genai==1.0.0
+# Google AI SDK (ADK for Live API)
+google-adk>=1.20.0
+google-genai>=1.0.0
 
 # Environment & Config
 python-dotenv==1.0.1

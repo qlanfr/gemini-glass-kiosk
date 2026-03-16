@@ -26,9 +26,16 @@ async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행되는 라이프사이클 관리"""
     # Startup
     print(f"🚀 GlassKiosk Copilot 서버 시작")
-    print(f"📍 Model: {settings.gemini_model}")
+    print(f"📍 Models:")
+    print(f"   - Vision: {settings.gemini_model_vision}")
+    print(f"   - Audio:  {settings.gemini_model_audio}")
+    print(f"   - TTS:    {settings.gemini_model_tts}")
     print(f"🔧 Debug: {settings.debug}")
-    print(f"📡 WebSocket: ws://localhost:{settings.port}/ws/live")
+    print(f"📡 WebSocket Endpoints:")
+    print(f"   - /ws/live    (ADK 패턴)")
+    print(f"   - /ws/native  (GCP 데모 패턴)")
+    print(f"   - /ws/session (Immergo 패턴 - Full-duplex)")
+    print(f"   - /ws/simple  (텍스트 전용)")
     yield
     # Shutdown
     print("👋 서버 종료")
@@ -74,7 +81,12 @@ async def root():
         "service": "GlassKiosk Copilot",
         "status": "running",
         "docs": "/docs",
-        "websocket": "/ws/live",
+        "websocket": {
+            "adk": "/ws/live",
+            "native": "/ws/native",
+            "session": "/ws/session",
+            "simple": "/ws/simple",
+        },
     }
 
 

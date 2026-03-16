@@ -20,6 +20,7 @@ class KioskRequest(BaseModel):
     image_base64: str = Field(..., description="Base64 인코딩된 이미지")
     user_query: Optional[str] = Field(None, description="사용자 음성/텍스트 입력")
     language_hint: Optional[str] = Field(None, description="언어 힌트 (예: ko-KR)")
+    prompt_id: Optional[str] = Field(None, description="시스템 프롬프트 ID (예: kio_friendly)")
 
 
 class KioskResponse(BaseModel):
@@ -45,3 +46,18 @@ class HealthResponse(BaseModel):
     status: str = Field(default="healthy")
     service: str = Field(default="glasskiosk-copilot")
     version: str = Field(default="1.0.0")
+
+
+class PromptInfo(BaseModel):
+    """프롬프트 정보"""
+    id: str = Field(..., description="프롬프트 ID")
+    name: str = Field(..., description="프롬프트 이름")
+    description: str = Field(..., description="프롬프트 설명")
+    language: str = Field(..., description="지원 언어 (ko, en, multi)")
+    icon: str = Field(..., description="아이콘 이모지")
+
+
+class PromptsListResponse(BaseModel):
+    """프롬프트 목록 응답"""
+    prompts: list[PromptInfo] = Field(..., description="사용 가능한 프롬프트 목록")
+    default_prompt_id: str = Field(..., description="기본 프롬프트 ID")

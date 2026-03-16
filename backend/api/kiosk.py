@@ -7,11 +7,27 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional
 import base64
 
-from core.schemas import KioskRequest, KioskResponse, ErrorResponse
+from core.schemas import KioskRequest, KioskResponse, ErrorResponse, PromptsListResponse, PromptInfo
 from core.gemini import get_gemini_service
+from core.prompts import list_prompts, DEFAULT_PROMPT_ID
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/prompts",
+    response_model=PromptsListResponse,
+    summary="사용 가능한 프롬프트 목록",
+    description="선택 가능한 시스템 프롬프트 목록을 반환합니다.",
+)
+async def get_prompts() -> PromptsListResponse:
+    """사용 가능한 프롬프트 목록 조회"""
+    prompts = [PromptInfo(**p) for p in list_prompts()]
+    return PromptsListResponse(
+        prompts=prompts,
+        default_prompt_id=DEFAULT_PROMPT_ID,
+    )
 
 
 @router.post(
@@ -38,6 +54,7 @@ async def process_kiosk(request: KioskRequest) -> KioskResponse:
             image_base64=request.image_base64,
             user_query=request.user_query,
             language_hint=request.language_hint,
+            prompt_id=request.prompt_id,
         )
         return response
 
@@ -62,6 +79,7 @@ async def process_kiosk_upload(
     image: UploadFile = File(..., description="키오스크 화면 이미지"),
     user_query: Optional[str] = Form(None, description="사용자 질문"),
     language_hint: Optional[str] = Form(None, description="언어 힌트"),
+    prompt_id: Optional[str] = Form(None, description="시스템 프롬프트 ID"),
 ) -> KioskResponse:
     """
     이미지 파일 업로드를 통한 키오스크 분석
@@ -77,6 +95,7 @@ async def process_kiosk_upload(
             image_base64=image_base64,
             user_query=user_query,
             language_hint=language_hint,
+            prompt_id=prompt_id,
         )
         return response
 

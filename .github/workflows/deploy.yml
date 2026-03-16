@@ -85,15 +85,32 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
-            --memory 1Gi \
-            --cpu 1 \
-            --timeout 60 \
-            --concurrency 80
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --concurrency 40 \
+            --min-instances 0 \
+            --max-instances 10
 
-      # 배포 URL 출력
-      - name: Show deployment URL
+      # 배포 URL 가져오기 및 저장
+      - name: Get and Save deployment URL
         run: |
-          echo "🚀 Deployed to:"
-          gcloud run services describe ${{ env.SERVICE_NAME }} \
+          DEPLOY_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
-            --format 'value(status.url)'
+            --format 'value(status.url)')
+          echo "🚀 Deployed to: $DEPLOY_URL"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> $GITHUB_OUTPUT
+
+          # config.json 생성 (GitHub Pages용)
+          mkdir -p config
+          echo "{\"server_url\": \"$DEPLOY_URL\", \"updated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > config/server.json
+        id: deploy
+
+      # GitHub Pages에 config 배포
+      - name: Deploy config to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./config
+          destination_dir: config
+          keep_files: true
