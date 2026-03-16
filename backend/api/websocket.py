@@ -530,6 +530,11 @@ async def websocket_session_endpoint(websocket: WebSocket, prompt_id: Optional[s
                         elif msg_type == "text":
                             await session.send_text(data["data"])
 
+                        elif msg_type == "audio":
+                            # JSON으로 전송된 Base64 오디오 처리
+                            audio_bytes = base64.b64decode(data["data"])
+                            await session.send_audio(audio_bytes)
+
                         elif msg_type == "metrics":
                             # 세션 메트릭 반환
                             await websocket.send_json({
@@ -553,9 +558,14 @@ async def websocket_session_endpoint(websocket: WebSocket, prompt_id: Optional[s
                         await websocket.send_bytes(event.data)
 
                     elif event.type == EventType.TEXT:
+                        # Flutter 앱 호환용 response 형식
                         await websocket.send_json({
-                            "type": "text",
-                            "data": event.data,
+                            "type": "response",
+                            "data": {
+                                "detected_language": "ko-KR",
+                                "audio_response": event.data,
+                                "status": "success",
+                            },
                         })
 
                     elif event.type == EventType.TRANSCRIPTION:
