@@ -25,10 +25,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _serverController.text = 'http://localhost:8000';
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<KioskProvider>();
       provider.loadPrompts();
       provider.loadProfileFromStorage();
+      // 앱 시작시 자동으로 서버 감지
+      await _autoDetectServer();
     });
   }
 
