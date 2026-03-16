@@ -40,6 +40,7 @@ class _CameraScreenState extends State<CameraScreen> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   bool _isRecording = false;
   StreamSubscription<Uint8List>? _audioStreamSubscription;
+  double _audioLevel = 0.0; // 0.0 ~ 1.0
 
   @override
   void initState() {
@@ -214,6 +215,24 @@ class _CameraScreenState extends State<CameraScreen> {
       );
 
       _audioStreamSubscription = stream.listen((data) {
+        // 오디오 레벨 계산 (간단한 RMS)
+        if (data.isNotEmpty) {
+          double sum = 0;
+          for (int i = 0; i < data.length; i += 2) {
+            if (i + 1 < data.length) {
+              int sample = (data[i + 1] << 8) | data[i];
+              if (sample > 32767) sample -= 65536;
+              sum += sample * sample;
+            }
+          }
+          double rms = sum / (data.length / 2);
+          double level = (rms / 32768 / 32768).clamp(0.0, 1.0);
+          setState(() {
+            _audioLevel = level * 10; // 증폭
+            if (_audioLevel > 1.0) _audioLevel = 1.0;
+          });
+        }
+
         // 오디오 데이터를 서버로 전송
         if (_isLiveConnected) {
           _apiService.sendAudioData(data);
@@ -430,25 +449,40 @@ class _CameraScreenState extends State<CameraScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 마이크 상태
+                    // 마이크 상태 + 레벨 표시
                     if (_isRecording)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Colors.blue,
+                          color: _audioLevel > 0.1 ? Colors.green : Colors.blue,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.mic, color: Colors.white, size: 14),
-                            SizedBox(width: 4),
-                            Text(
-                              '음성 입력 중',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
+                            Icon(
+                              _audioLevel > 0.1 ? Icons.mic : Icons.mic_none,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            // 오디오 레벨 바
+                            Container(
+                              width: 40,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: _audioLevel,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
