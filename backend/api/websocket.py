@@ -76,27 +76,13 @@ async def websocket_live_endpoint(websocket: WebSocket):
             session_id=session_id,
         )
 
-        # 모델 타입에 따른 설정
+        # 다국어 지원을 위해 항상 TEXT 응답 사용 (Flutter TTS가 언어별 음성 출력)
         model_name = settings.gemini_model_audio
-        if is_native_audio_model(model_name):
-            # Native Audio 모델: AUDIO 응답
-            run_config = types.RunConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name="Aoede"  # 한국어 지원 음성
-                        )
-                    )
-                ),
-                input_audio_transcription=types.AudioTranscriptionConfig(),
-                output_audio_transcription=types.AudioTranscriptionConfig(),
-            )
-        else:
-            # Half-cascade 모델: TEXT 응답
-            run_config = types.RunConfig(
-                response_modalities=["TEXT"],
-            )
+        run_config = types.RunConfig(
+            response_modalities=["TEXT"],
+            # Native Audio 모델: 음성 입력 전사만 활성화
+            **({"input_audio_transcription": types.AudioTranscriptionConfig()} if is_native_audio_model(model_name) else {}),
+        )
 
         # Live Request Queue 생성
         live_request_queue = runner.create_live_request_queue()

@@ -140,29 +140,16 @@ class GeminiLiveClient:
             LiveEvent: 오디오, 텍스트, 전사, 턴 완료 등의 이벤트
         """
         # 설정 구성
-        if self._is_native_audio():
-            config = types.LiveConnectConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name="Aoede"
-                        )
-                    )
-                ),
-                system_instruction=types.Content(
-                    parts=[types.Part(text=self.system_instruction)]
-                ),
-                input_audio_transcription=types.AudioTranscriptionConfig(),
-                output_audio_transcription=types.AudioTranscriptionConfig(),
-            )
-        else:
-            config = types.LiveConnectConfig(
-                response_modalities=["TEXT"],
-                system_instruction=types.Content(
-                    parts=[types.Part(text=self.system_instruction)]
-                ),
-            )
+        # 다국어 지원을 위해 항상 TEXT 응답 사용 (Flutter TTS가 언어별로 음성 출력)
+        # Native Audio 모델은 입력 음성 인식에만 사용
+        config = types.LiveConnectConfig(
+            response_modalities=["TEXT"],  # 텍스트로 응답받아 Flutter TTS로 다국어 음성 출력
+            system_instruction=types.Content(
+                parts=[types.Part(text=self.system_instruction)]
+            ),
+            # 음성 입력 전사 활성화 (Native Audio 모델일 때만)
+            **({"input_audio_transcription": types.AudioTranscriptionConfig()} if self._is_native_audio() else {}),
+        )
 
         self._running = True
 
