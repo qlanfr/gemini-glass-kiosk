@@ -1,10 +1,12 @@
-// GlassKiosk Copilot - 카메라 화면 (실시간 모드 지원)
+// GlassKiosk Copilot - 카메라 화면 (실시간 모드 + 음성 입력)
 
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 
 import '../providers/kiosk_provider.dart';
 import '../models/kiosk_response.dart';
@@ -34,6 +36,11 @@ class _CameraScreenState extends State<CameraScreen> {
   KioskResponse? _liveResponse;
   String? _liveError;
 
+  // 음성 녹음 관련
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  StreamSubscription<Uint8List>? _audioStreamSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -44,17 +51,24 @@ class _CameraScreenState extends State<CameraScreen> {
   void dispose() {
     _stopLiveMode();
     _cameraController?.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
   Future<void> _initializeCamera() async {
     // 카메라 권한 요청
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
+    final cameraStatus = await Permission.camera.request();
+    if (!cameraStatus.isGranted) {
       setState(() {
         _errorMessage = '카메라 권한이 필요합니다';
       });
       return;
+    }
+
+    // 마이크 권한 요청
+    final micStatus = await Permission.microphone.request();
+    if (!micStatus.isGranted) {
+      _showSnackBar('마이크 권한이 없으면 음성 입력이 불가합니다', Colors.orange);
     }
 
     // 사용 가능한 카메라 목록
@@ -75,7 +89,7 @@ class _CameraScreenState extends State<CameraScreen> {
     // 카메라 컨트롤러 초기화
     _cameraController = CameraController(
       camera,
-      ResolutionPreset.medium, // 실시간 모드를 위해 medium으로 변경
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -102,7 +116,7 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  void _startLiveMode() {
+  void _startLiveMode() async {
     final provider = context.read<KioskProvider>();
     _apiService.setBaseUrl(provider.serverUrl);
 
@@ -133,8 +147,10 @@ class _CameraScreenState extends State<CameraScreen> {
           _isLiveConnected = true;
         });
         _showSnackBar('실시간 연결됨', Colors.green);
-        // 프레임 전송 시작 (초당 1프레임)
+        // 프레임 전송 시작
         _startFrameCapture();
+        // 음성 녹음 시작
+        _startAudioRecording();
       },
       onDisconnected: () {
         setState(() {
@@ -142,6 +158,7 @@ class _CameraScreenState extends State<CameraScreen> {
           _isLiveMode = false;
         });
         _showSnackBar('연결 종료됨', Colors.orange);
+        _stopAudioRecording();
       },
       promptId: provider.selectedPromptId,
     );
@@ -150,6 +167,7 @@ class _CameraScreenState extends State<CameraScreen> {
   void _stopLiveMode() {
     _frameTimer?.cancel();
     _frameTimer = null;
+    _stopAudioRecording();
     _apiService.disconnectWebSocket();
     setState(() {
       _isLiveMode = false;
@@ -160,8 +178,8 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _startFrameCapture() {
-    // 1초마다 프레임 캡처 및 전송
-    _frameTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) async {
+    // 2초마다 프레임 캡처 및 전송 (음성과 병행하므로 줄임)
+    _frameTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) async {
       if (!_isLiveConnected || _cameraController == null) return;
 
       try {
@@ -172,6 +190,60 @@ class _CameraScreenState extends State<CameraScreen> {
         // 프레임 캡처 실패 시 무시
       }
     });
+  }
+
+  // ===== 음성 녹음 =====
+
+  Future<void> _startAudioRecording() async {
+    if (_isRecording) return;
+
+    // 마이크 권한 확인
+    if (!await _audioRecorder.hasPermission()) {
+      _showSnackBar('마이크 권한이 필요합니다', Colors.red);
+      return;
+    }
+
+    try {
+      // PCM 16kHz 스트림 녹음 시작
+      final stream = await _audioRecorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+      );
+
+      _audioStreamSubscription = stream.listen((data) {
+        // 오디오 데이터를 서버로 전송
+        if (_isLiveConnected) {
+          _apiService.sendAudioData(data);
+        }
+      });
+
+      setState(() {
+        _isRecording = true;
+      });
+
+      _showSnackBar('음성 입력 시작', Colors.blue);
+    } catch (e) {
+      _showSnackBar('녹음 시작 실패: $e', Colors.red);
+    }
+  }
+
+  Future<void> _stopAudioRecording() async {
+    if (!_isRecording) return;
+
+    try {
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = null;
+      await _audioRecorder.stop();
+
+      setState(() {
+        _isRecording = false;
+      });
+    } catch (e) {
+      // 무시
+    }
   }
 
   void _sendVoiceQuery(String query) {
@@ -328,31 +400,61 @@ class _CameraScreenState extends State<CameraScreen> {
               Positioned(
                 top: 16,
                 left: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _isLiveConnected ? Colors.red : Colors.orange,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _isLiveConnected ? Icons.fiber_manual_record : Icons.sync,
-                        color: Colors.white,
-                        size: 12,
+                child: Row(
+                  children: [
+                    // LIVE 배지
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _isLiveConnected ? Colors.red : Colors.orange,
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _isLiveConnected ? 'LIVE' : '연결 중...',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isLiveConnected ? Icons.fiber_manual_record : Icons.sync,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _isLiveConnected ? 'LIVE' : '연결 중...',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 마이크 상태
+                    if (_isRecording)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.mic, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text(
+                              '음성 입력 중',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
 
@@ -398,7 +500,7 @@ class _CameraScreenState extends State<CameraScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.9),
+                    color: Colors.red.withValues(alpha: 0.9),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -436,7 +538,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget _buildResponseCard(KioskProvider provider) {
     final response = provider.lastResponse!;
     return Card(
-      color: Colors.white.withOpacity(0.9),
+      color: Colors.white.withValues(alpha: 0.9),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -658,6 +760,14 @@ class _CameraScreenState extends State<CameraScreen> {
                     Navigator.pop(context);
                     _toggleLiveMode();
                   },
+                ),
+                ListTile(
+                  leading: Icon(
+                    _isRecording ? Icons.mic : Icons.mic_off,
+                    color: _isRecording ? Colors.blue : Colors.grey,
+                  ),
+                  title: const Text('음성 입력'),
+                  subtitle: Text(_isRecording ? '녹음 중' : '대기'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.language),

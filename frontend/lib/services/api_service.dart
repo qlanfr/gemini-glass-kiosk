@@ -160,6 +160,18 @@ class ApiService {
     }));
   }
 
+  // WebSocket: 오디오 데이터 전송 (PCM 16kHz)
+  void sendAudioData(List<int> audioBytes) {
+    if (_wsChannel == null) return;
+
+    _wsChannel!.sink.add(jsonEncode({
+      'type': 'audio',
+      'data': base64Encode(audioBytes),
+      'mime_type': 'audio/pcm',
+      'sample_rate': 16000,
+    }));
+  }
+
   // WebSocket: 연결 종료
   void disconnectWebSocket() {
     if (_wsChannel != null) {

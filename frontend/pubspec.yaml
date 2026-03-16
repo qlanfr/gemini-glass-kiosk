@@ -14,6 +14,7 @@ dependencies:
 
   # Camera & Media
   camera: ^0.11.0
+  record: ^6.0.0
 
   # TTS (Text-to-Speech)
   flutter_tts: ^4.0.2
