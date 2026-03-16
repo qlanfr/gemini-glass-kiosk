@@ -7,7 +7,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8080
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -29,11 +30,7 @@ RUN chown -R appuser:appuser /app
 USER appuser
 
 # 포트 노출
-EXPOSE 8000
+EXPOSE 8080
 
-# 헬스체크
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
-
-# 서버 실행
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 서버 실행 (Cloud Run은 PORT 환경변수 사용)
+CMD exec uvicorn main:app --host 0.0.0.0 --port $PORT

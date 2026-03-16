@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Server Configuration
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8080  # Cloud Run default
     debug: bool = False
 
     # CORS Settings
