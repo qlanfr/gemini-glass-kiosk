@@ -76,12 +76,18 @@ async def websocket_live_endpoint(websocket: WebSocket):
             session_id=session_id,
         )
 
-        # 다국어 지원을 위해 항상 TEXT 응답 사용 (Flutter TTS가 언어별 음성 출력)
-        model_name = settings.gemini_model_audio
+        # Native Audio 모델: 음성 자동 언어 감지 (Kore 음성 = 다국어 지원)
         run_config = types.RunConfig(
-            response_modalities=["TEXT"],
-            # Native Audio 모델: 음성 입력 전사만 활성화
-            **({"input_audio_transcription": types.AudioTranscriptionConfig()} if is_native_audio_model(model_name) else {}),
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Kore"  # 다국어 지원 음성
+                    )
+                )
+            ),
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
         )
 
         # Live Request Queue 생성
@@ -544,21 +550,28 @@ async def websocket_session_endpoint(websocket: WebSocket, prompt_id: Optional[s
                         await websocket.send_bytes(event.data)
 
                     elif event.type == EventType.TEXT:
-                        # Flutter 앱 호환용 response 형식
+                        # TEXT 응답 (일반 모델)
                         await websocket.send_json({
                             "type": "response",
                             "data": {
-                                "detected_language": "ko-KR",
+                                "detected_language": "auto",
                                 "audio_response": event.data,
                                 "status": "success",
                             },
                         })
 
                     elif event.type == EventType.TRANSCRIPTION:
-                        await websocket.send_json({
-                            "type": "transcription",
-                            "data": event.data,
-                        })
+                        # output transcription = AI 응답 텍스트 → Flutter TTS로 읽기
+                        if event.data.get("type") == "output":
+                            await websocket.send_json({
+                                "type": "response",
+                                "data": {
+                                    "detected_language": "auto",
+                                    "audio_response": event.data.get("text", ""),
+                                    "status": "success",
+                                },
+                            })
+                        # input transcription은 무시 (사용자 음성은 이미 앱에서 표시)
 
                     elif event.type == EventType.TURN_COMPLETE:
                         await websocket.send_json({
